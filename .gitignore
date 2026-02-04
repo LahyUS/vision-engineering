@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Data & Models (Do not commit large files)
+data/
+models/
+*.pt
+*.onnx
+runs/
+wandb/
+
+# Jupyter
+.ipynb_checkpoints
