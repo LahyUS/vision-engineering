@@ -3,6 +3,7 @@ import numpy as np
 import onnxruntime as ort
 import argparse
 import time
+from tracker import CentroidTracker
 
 # COCO Class Names (80 classes)
 CLASSES = [
@@ -32,86 +33,55 @@ class YOLODetector:
         self.input_height, self.input_width = self.input_shape
 
     def preprocess(self, image):
-        """
-        Resize image and normalize to [0, 1]
-        """
         self.img_height, self.img_width = image.shape[:2]
-        
-        # Resize logic (Letterbox is ideal, but resize is simpler for MVP)
         img_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         img_resized = cv2.resize(img_rgb, (self.input_width, self.input_height))
-        
-        # HWC -> CHW, Normalize
         input_tensor = img_resized.transpose((2, 0, 1)) / 255.0
         input_tensor = np.expand_dims(input_tensor, axis=0).astype(np.float32)
-        
         return input_tensor
 
     def postprocess(self, output):
-        """
-        Parse raw output (1, 84, 8400) -> Boxes, Scores, ClassIDs
-        """
-        # Transpose: (1, 84, 8400) -> (1, 8400, 84)
         outputs = np.transpose(np.squeeze(output[0]))
-        
-        # Rows: 8400 anchors
-        # Cols: [x, y, w, h, class_score_1, ..., class_score_80]
-        
         boxes = []
         confidences = []
         class_ids = []
         
-        # Calculate scaling factors
         x_factor = self.img_width / self.input_width
         y_factor = self.img_height / self.input_height
 
-        # Filter by confidence
-        # Maximum class score for each row
         scores = np.max(outputs[:, 4:], axis=1)
-        # Find indices where score > threshold
         keep_indices = scores > self.conf_thres
         
-        # Filtered results
         filtered_outputs = outputs[keep_indices]
         filtered_scores = scores[keep_indices]
         
         for i, row in enumerate(filtered_outputs):
-            # Extract box
             x, y, w, h = row[:4]
-            
-            # Map back to original image size
             left = int((x - w/2) * x_factor)
             top = int((y - h/2) * y_factor)
             width = int(w * x_factor)
             height = int(h * y_factor)
-            
-            # Get class ID
             class_id = np.argmax(row[4:])
             
-            boxes.append([left, top, width, height])
-            confidences.append(float(filtered_scores[i]))
-            class_ids.append(class_id)
+            # Only track 'person' (class_id 0 for COCO)
+            if class_id == 0: 
+                boxes.append([left, top, width, height])
+                confidences.append(float(filtered_scores[i]))
+                class_ids.append(class_id)
 
-        # Apply NMS (Non-Maximum Suppression)
         indices = cv2.dnn.NMSBoxes(boxes, confidences, self.conf_thres, self.iou_thres)
         
         results = []
         if len(indices) > 0:
             for i in indices.flatten():
-                results.append({
-                    "box": boxes[i],
-                    "confidence": confidences[i],
-                    "class_id": class_ids[i],
-                    "label": CLASSES[class_ids[i]]
-                })
+                results.append(boxes[i])
         
         return results
 
     def run(self, image):
         input_tensor = self.preprocess(image)
         output = self.session.run(None, {self.input_name: input_tensor})
-        results = self.postprocess(output)
-        return results
+        return self.postprocess(output)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -119,10 +89,9 @@ def main():
     parser.add_argument("--source", type=str, default="0", help="Webcam ID (0) or video path")
     args = parser.parse_args()
 
-    # Initialize Detector
     detector = YOLODetector(args.model)
-
-    # Open Webcam
+    tracker = CentroidTracker(max_disappeared=40, max_distance=100)
+    
     source = int(args.source) if args.source.isdigit() else args.source
     cap = cv2.VideoCapture(source)
 
@@ -130,42 +99,72 @@ def main():
         print("Error: Could not open video source.")
         return
 
-    print("Starting Webcam Demo... Press 'q' to exit.")
+    # Counts
+    total_count_down = 0
+    total_count_up = 0
     
-    prev_time = 0
+    # Store previous centroid Y position for each ID {id: y_prev}
+    trackable_objects = {}
 
+    print("Starting Smart Counter... Press 'q' to exit.")
+    
     while True:
         ret, frame = cap.read()
         if not ret:
             break
             
-        # Inference
         start_time = time.time()
-        detections = detector.run(frame)
+        
+        # 1. Detect
+        rects = detector.run(frame)
+        
+        # 2. Track
+        # objects is a dict: {ID: (x, y)} (centroid)
+        objects = tracker.update(rects)
+        
+        # 3. Analytics (Line Crossing)
+        height, width = frame.shape[:2]
+        line_y = height // 2
+        
+        cv2.line(frame, (0, line_y), (width, line_y), (0, 255, 255), 2)
+        
+        for (object_id, centroid) in objects.items():
+            # Draw centroid and ID
+            c_x, c_y = centroid
+            cv2.circle(frame, (c_x, c_y), 4, (0, 255, 0), -1)
+            cv2.putText(frame, f"ID {object_id}", (c_x - 10, c_y - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            
+            # Check crossing
+            if object_id in trackable_objects:
+                prev_y = trackable_objects[object_id]
+                curr_y = c_y
+                
+                # Moving Down (Enter)
+                if prev_y < line_y and curr_y >= line_y:
+                    total_count_down += 1
+                
+                # Moving Up (Exit)
+                elif prev_y > line_y and curr_y <= line_y:
+                    total_count_up += 1
+            
+            trackable_objects[object_id] = c_y
+
         fps = 1 / (time.time() - start_time)
+        
+        # Dashboard
+        cv2.rectangle(frame, (0, 0), (200, 80), (0, 0, 0), -1)
+        cv2.putText(frame, f"In (Down): {total_count_down}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        cv2.putText(frame, f"Out (Up): {total_count_up}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+        cv2.putText(frame, f"FPS: {fps:.1f}", (width - 120, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
-        # Visualization
-        for det in detections:
-            x, y, w, h = det["box"]
-            color = (0, 255, 0) # Green
-            
-            cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-            
-            label = f"{det['label']} {det['confidence']:.2f}"
-            cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
-        # Show FPS
-        cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-
-        cv2.imshow("YOLOv8 Edge Demo", frame)
+        cv2.imshow("YOLOv8 Edge Analytics", frame)
 
         key = cv2.waitKey(1) & 0xFF
         if key == ord('q'):
             break
-
-        # Check if window is closed (X button click)
         try:
-            if cv2.getWindowProperty("YOLOv8 Edge Demo", cv2.WND_PROP_VISIBLE) < 1:
+            if cv2.getWindowProperty("YOLOv8 Edge Analytics", cv2.WND_PROP_VISIBLE) < 1:
                 break
         except Exception:
             break
