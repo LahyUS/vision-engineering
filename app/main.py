@@ -2,91 +2,13 @@ import cv2
 import argparse
 import time
 import numpy as np
-from tracker import CentroidTracker
-from pose_detector import PoseDetector
-from gym_logic import GymLogic
-from recorder import EventRecorder
 import onnxruntime as ort
 
-# COCO Class Names (80 classes)
-CLASSES = [
-    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
-    "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
-    "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
-    "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
-    "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
-    "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
-    "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone",
-    "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
-    "hair drier", "toothbrush"
-]
-
-class YOLODetector:
-    def __init__(self, model_path, conf_thres=0.5, iou_thres=0.5):
-        self.conf_thres = conf_thres
-        self.iou_thres = iou_thres
-        print(f"Loading Detection model: {model_path}")
-        self.session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
-        self.input_name = self.session.get_inputs()[0].name
-        self.input_shape = self.session.get_inputs()[0].shape[2:] 
-        self.input_height, self.input_width = self.input_shape
-
-    def preprocess(self, image):
-        self.img_height, self.img_width = image.shape[:2]
-        img_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        img_resized = cv2.resize(img_rgb, (self.input_width, self.input_height))
-        input_tensor = img_resized.transpose((2, 0, 1)) / 255.0
-        input_tensor = np.expand_dims(input_tensor, axis=0).astype(np.float32)
-        return input_tensor
-
-    def postprocess(self, output, classes=None):
-        outputs = np.transpose(np.squeeze(output[0]))
-        boxes = []
-        confidences = []
-        class_ids = []
-        
-        x_factor = self.img_width / self.input_width
-        y_factor = self.img_height / self.input_height
-
-        scores = np.max(outputs[:, 4:], axis=1)
-        keep_indices = scores > self.conf_thres
-        
-        filtered_outputs = outputs[keep_indices]
-        filtered_scores = scores[keep_indices]
-        
-        for i, row in enumerate(filtered_outputs):
-            class_id = np.argmax(row[4:])
-            
-            # Filter by class if specified
-            if classes is not None and class_id not in classes:
-                continue
-
-            x, y, w, h = row[:4]
-            left = int((x - w/2) * x_factor)
-            top = int((y - h/2) * y_factor)
-            width = int(w * x_factor)
-            height = int(h * y_factor)
-            
-            boxes.append([left, top, width, height])
-            confidences.append(float(filtered_scores[i]))
-            class_ids.append(class_id)
-
-        indices = cv2.dnn.NMSBoxes(boxes, confidences, self.conf_thres, self.iou_thres)
-        results = []
-        if len(indices) > 0:
-            for i in indices.flatten():
-                results.append({
-                    "box": boxes[i],
-                    "confidence": confidences[i],
-                    "class_id": class_ids[i],
-                    "label": CLASSES[class_ids[i]]
-                })
-        return results
-
-    def run(self, image, classes=None):
-        input_tensor = self.preprocess(image)
-        output = self.session.run(None, {self.input_name: input_tensor})
-        return self.postprocess(output, classes)
+from app.core.tracker import CentroidTracker
+from app.core.pose import PoseDetector
+from app.core.gym import GymLogic
+from app.core.recorder import EventRecorder
+from app.core.detector import YOLODetector
 
 class VisionApp:
     def __init__(self, detect_model, pose_model, source):
@@ -117,14 +39,6 @@ class VisionApp:
             ret, frame = self.cap.read()
             if not ret:
                 break
-            
-            # Process Buffer (Raw frame before drawing)
-            # Actually we likely want the recording to contain the DRAWING (Visuals).
-            # If so, we should record 'frame' AT THE END of the loop.
-            # But 'recorder.write_frame' needs to happen every loop.
-            # Let's verify: usually we want "Clean" video or "Overlay" video?
-            # For "Evidence" (Security), usually Raw is better, but for "Demo", Overlay is better.
-            # Let's record the Overlay (processed frame) for maximum "Appeal".
             
             start_time = time.time()
             
@@ -230,12 +144,18 @@ class VisionApp:
 
     def run_gym(self, frame):
         # 1. Pose Detect
+        # We assume 1 person for Gym logic usually
         detections = self.pose_detector.run(frame)
         
         if len(detections) > 0:
+            # Take highest score person
             person = max(detections, key=lambda x: x['score'])
             kpts = person['keypoints']
+            
+            # 2. Logic
             angle, state, reps, feedback = self.gym_logic.update(kpts)
+            
+            # 3. Draw
             self.gym_logic.draw(frame, kpts, angle)
             
             if feedback == "Good Rep!":
@@ -247,6 +167,7 @@ class VisionApp:
             cv2.putText(frame, f"REPS: {reps}", (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 255), 3)
             cv2.putText(frame, f"State: {state}", (10, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
             cv2.putText(frame, f"{feedback}", (10, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
+
 
 def main():
     parser = argparse.ArgumentParser()

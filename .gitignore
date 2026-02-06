@@ -13,3 +13,4 @@ wandb/
 
 # Jupyter
 .ipynb_checkpoints
+recordings/
