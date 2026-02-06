@@ -315,6 +315,19 @@
                     </div>
                 </div>
 
+                <div id="emo-stats" class="stats-grid" style="display: none;">
+                    <div class="stat-box" style="grid-column: span 2;">
+                        <div class="stat-label">DETECTED EMOTION</div>
+                        <div class="stat-value" id="emo-val" style="color: var(--neon-blue); font-size: 24px;">--</div>
+                    </div>
+                    <div class="stat-box" style="grid-column: span 2;">
+                        <div class="stat-label">CURRENT TRACK</div>
+                        <div class="stat-value" id="music-val" style="font-size: 16px; color: #aaa;">Waiting...</div>
+                    </div>
+                    <!-- Hidden Music Player -->
+                    <div id="player-container" style="display:none;"></div>
+                </div>
+
                 <div id="gym-feedback"
                     style="text-align:center; color: var(--neon-purple); font-weight:bold; min-height: 20px;"></div>
 
@@ -327,6 +340,8 @@
                 <button class="btn-det" onclick="setMode('DETECTION')">Detection</button>
                 <button class="btn-cnt" onclick="setMode('COUNTING')">Analytics</button>
                 <button class="btn-gym" onclick="setMode('GYM')">AI Gym</button>
+                <button class="btn-emo" onclick="setMode('EMOTION')" style="border-color: var(--neon-blue);">Empathetic
+                    AI</button>
             </div>
         </div>
     </div>
@@ -349,11 +364,82 @@
             spacing: 18.00
         })
 
+        // --- Music Player Logic (YouTube) ---
+        var player;
+        var currentMood = "";
+        // Mapping Emotions to YouTube Video IDs
+        const musicMap = {
+            "Happy": "5qap5aO4i9A",    // Lofi Hip Hop (Chilled)
+            "Neutral": "jfKfPfyJRdk",  // Lofi Girl
+            "Anger": "5qap5aO4i9A",    // Calm down with Lofi
+            "Sad": "5qap5aO4i9A",      // Comfort Lofi
+            "Surprise": "jfKfPfyJRdk"
+        };
+
+        // Names for Debugging
+        const trackNames = {
+            "5qap5aO4i9A": "Lofi Hip Hop - Beats to Relax/Study",
+            "jfKfPfyJRdk": "Lofi Girl - 24/7 Radio"
+        };
+
+        // Load YouTube IFrame API
+        var tag = document.createElement('script');
+        tag.src = "https://www.youtube.com/iframe_api";
+        var firstScriptTag = document.getElementsByTagName('script')[0];
+        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+        function onYouTubeIframeAPIReady() {
+            player = new YT.Player('player-container', {
+                height: '0',
+                width: '0',
+                videoId: 'jfKfPfyJRdk',
+                events: {
+                    'onReady': onPlayerReady
+                }
+            });
+        }
+
+        function onPlayerReady(event) {
+            // Player is ready
+        }
+
+        function updateMusic(emotion) {
+            if (!player || !emotion) return;
+            if (emotion === "Unknown") return;
+
+            // Debounce/Stability check could be added here
+            if (emotion !== currentMood) {
+                console.log(`[DJ] Emotion Changed: ${currentMood} -> ${emotion}`);
+                currentMood = emotion;
+
+                let vid = musicMap[emotion] || musicMap["Neutral"];
+                let trackName = trackNames[vid] || vid;
+
+                console.log(`[DJ] Switching to Video ID: ${vid} (${trackName})`);
+
+                // Update UI
+                document.getElementById('music-val').innerText = trackName;
+
+                // Actual YouTube Call
+                if (typeof player.loadVideoById === 'function') {
+                    player.loadVideoById(vid);
+                } else {
+                    console.log("[DJ] Player not ready yet.");
+                }
+            }
+        }
+
         // API Interaction
         function setMode(mode) {
             fetch(`/api/mode/${mode}`, { method: 'POST' })
                 .then(response => response.json())
-                .then(updateUI);
+                .then(data => {
+                    updateUI(data);
+                    // Stop music if leaving Emotion mode
+                    if (mode !== 'EMOTION' && player && typeof player.stopVideo === 'function') {
+                        player.stopVideo();
+                    }
+                });
         }
 
         function updateUI(data) {
@@ -373,6 +459,7 @@
                     // Toggle Panels Area
                     document.getElementById('gym-stats').style.display = (data.mode === 'GYM') ? 'grid' : 'none';
                     document.getElementById('cnt-stats').style.display = (data.mode === 'COUNTING') ? 'grid' : 'none';
+                    document.getElementById('emo-stats').style.display = (data.mode === 'EMOTION') ? 'grid' : 'none';
 
                     if (data.mode === 'GYM') {
                         document.getElementById('gym-reps').innerText = data.reps;
@@ -383,6 +470,11 @@
                     if (data.mode === 'COUNTING') {
                         document.getElementById('cnt-in').innerText = data.count_in;
                         document.getElementById('cnt-out').innerText = data.count_out;
+                    }
+
+                    if (data.mode === 'EMOTION') {
+                        document.getElementById('emo-val').innerText = data.emotion;
+                        updateMusic(data.emotion);
                     }
                 });
         }, 500); // Update faster for smooth counting

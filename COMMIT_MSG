@@ -1,0 +1,17 @@
+feat: Implement 'Empathetic AI' Mode (Emotion Recognition + Smart DJ)
+
+This commit introduces Phase 5 of the Vision Engineering project, adding
+Human-Computer Interaction (HCI) capabilities.
+
+Summary of Changes:
+- Core: Added `app.core.emotion.EmotionClassifier` using `emotion-ferplus-8.onnx`.
+- Server: Integrated Emotion logic into the main Vision Engine loop.
+- API: Exposed emotion state via `/api/stats`.
+- UI: Added "Empathetic AI" mode to the dashboard.
+- Audio: Integrated YouTube IFrame API to auto-switch music based on detected mood.
+- Debug: Added UI feedback for "Current Track" and enhanced JS logging.
+
+Technical Details:
+- Uses Pose Estimation (Nose/Eyes) to dynamically crop the face, avoiding a heavy secondary detector.
+- Standardized 64x64 input for FERPlus ONNX inference.
+- Added debounce logic in frontend to prevent rapid playlist switching.

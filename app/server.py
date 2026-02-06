@@ -14,6 +14,7 @@ from app.core.pose import PoseDetector
 from app.core.gym import GymLogic
 from app.core.recorder import EventRecorder
 from app.core.detector import YOLODetector
+from app.core.emotion import EmotionClassifier
 
 from contextlib import asynccontextmanager
 
@@ -32,9 +33,12 @@ class AppState:
         self.reps = 0
         self.gym_state = "Idle"
         self.feedback = ""
+        self.emotion = "Neutral"
 
 state = AppState()
 engine = None # Global reference for shutdown
+server_thread = None # Global reference for joining
+web_server = None # Global reference to uvicorn server
 
 # --- Vision Engine (Background Thread) ---
 class VisionEngine:
@@ -42,6 +46,7 @@ class VisionEngine:
         self.detector = YOLODetector(det_model)
         self.tracker = CentroidTracker(max_disappeared=40, max_distance=100)
         self.pose_detector = PoseDetector(pose_model)
+        self.emotion_classifier = EmotionClassifier("models/emotion-ferplus-8.onnx")
         self.gym_logic = GymLogic()
         self.recorder = EventRecorder(output_dir="recordings", buffer_seconds=2, post_event_seconds=5)
         
@@ -72,6 +77,8 @@ class VisionEngine:
                 self.process_counting(frame)
             elif current_mode == "GYM":
                 self.process_gym(frame)
+            elif current_mode == "EMOTION":
+                self.process_emotion(frame)
                 
             # --- Recorder ---
             state.recording = self.recorder.is_recording()
@@ -151,6 +158,31 @@ class VisionEngine:
             state.reps = reps
             state.gym_state = stance
             state.feedback = feedback
+    
+    def process_emotion(self, frame):
+        # 1. Get Pose to find face (Optimization: Reusing pose logic)
+        detections = self.pose_detector.run(frame)
+        if len(detections) > 0:
+            person = max(detections, key=lambda x: x['score'])
+            kpts = person['keypoints']
+            
+            # 2. Extract Face & Classify Emotion
+            emotion = self.emotion_classifier.run(frame, kpts)
+            state.emotion = emotion
+            
+            # 3. Visualization
+            # Draw Face Box logic roughly (just for feedback)
+            nose = kpts[0]
+            if nose[2] > 0.5:
+                cv2.circle(frame, (int(nose[0]), int(nose[1])), 5, (255, 0, 255), -1)
+                
+            # We don't burn text into video for emotion, we let UI handle it 
+            # to match the "Empathetic AI" aesthetic
+            
+            # Simple Trigger for Recording (e.g. if very Happy or Angry)
+            if emotion in ["Happy", "Anger", "Surprise"]:
+                # Simple throttle logic could be added here
+                pass
 
 
 # --- FastAPI Routes ---
@@ -176,6 +208,7 @@ async def lifespan(app: FastAPI):
         print("[INFO] Thread joined.")
 
 app = FastAPI(lifespan=lifespan)
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
 @app.get("/", response_class=HTMLResponse)
@@ -224,12 +257,13 @@ async def get_stats():
         "count_out": state.count_out,
         "reps": state.reps,
         "gym_state": state.gym_state,
-        "feedback": state.feedback
+        "feedback": state.feedback,
+        "emotion": state.emotion
     }
 
 @app.post("/api/mode/{mode_name}")
 async def set_mode(mode_name: str):
-    if mode_name in ["DETECTION", "COUNTING", "GYM"]:
+    if mode_name in ["DETECTION", "COUNTING", "GYM", "EMOTION"]:
         state.mode = mode_name
         print(f"Server: Switched to {mode_name}")
     return {"mode": state.mode}
