@@ -1,75 +1,392 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
+
 <head>
-    <title>AI Lab - Unified Vision Dashboard</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI_LAB // VISION_ENGINE</title>
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&display=swap"
+        rel="stylesheet">
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vanta@0.5.24/dist/vanta.net.min.js"></script>
+
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #1a1a1a; color: #fff; text-align: center; margin: 0; }
-        header { background: #2d2d2d; padding: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
-        h1 { margin: 0; color: #4CAF50; }
-        .container { display: flex; flex-direction: row; justify-content: center; padding: 20px; gap: 20px; }
-        .video-box { border: 3px solid #444; border-radius: 8px; overflow: hidden; height: 480px; width: 640px; background: black;}
-        .controls { width: 300px; text-align: left; background: #2d2d2d; padding: 20px; border-radius: 8px; }
-        button {
-            width: 100%; padding: 15px; margin: 10px 0; font-size: 16px; 
-            border: none; border-radius: 5px; cursor: pointer; color: white;
-            transition: 0.2s;
+        :root {
+            --glass-bg: rgba(20, 25, 30, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --neon-blue: #00f3ff;
+            --neon-green: #0aff0a;
+            --neon-red: #ff003c;
+            --neon-purple: #bc13fe;
         }
-        .btn-det { background: #2196F3; }
-        .btn-cnt { background: #FF9800; }
-        .btn-gym { background: #9C27B0; }
-        button:hover { opacity: 0.8; transform: scale(1.02); }
-        .status { margin-top: 20px; padding: 10px; background: #333; border-radius: 5px; }
-        .rec-indicator { color: red; font-weight: bold; display: none; }
+
+        body {
+            font-family: 'Rajdhani', sans-serif;
+            margin: 0;
+            overflow: hidden;
+            /* Full screen sci-fi feel */
+            color: #fff;
+            background: #000;
+        }
+
+        #vanta-bg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100vh;
+            z-index: -1;
+        }
+
+        /* Glassmorphism Container */
+        .main-interface {
+            display: flex;
+            height: 100vh;
+            align-items: center;
+            justify-content: center;
+            gap: 40px;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        /* Video Frame */
+        .video-container {
+            position: relative;
+            width: 800px;
+            /* HD Ratioish */
+            height: 600px;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid var(--neon-blue);
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.2);
+            border-radius: 4px;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .video-container::before {
+            content: "LIVE FEED // CAM_01";
+            position: absolute;
+            top: 10px;
+            left: 15px;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 12px;
+            color: var(--neon-blue);
+            letter-spacing: 2px;
+            z-index: 10;
+        }
+
+        .video-container::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            pointer-events: none;
+            box-shadow: inset 0 0 50px rgba(0, 0, 0, 0.5);
+        }
+
+        img.feed {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        /* Control Panel */
+        .control-panel {
+            width: 320px;
+            height: 600px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 30px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+
+        h1 {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 24px;
+            margin: 0 0 5px 0;
+            color: var(--neon-blue);
+            text-shadow: 0 0 10px rgba(0, 243, 255, 0.5);
+        }
+
+        h2 {
+            font-size: 14px;
+            font-weight: 400;
+            color: #aaa;
+            margin-bottom: 30px;
+            letter-spacing: 1px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 10px;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .stat-box {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 10px;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .stat-label {
+            font-size: 10px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .stat-value {
+            font-size: 20px;
+            font-weight: 700;
+            color: #fff;
+        }
+
+        #fps-value {
+            color: var(--neon-green);
+        }
+
+        /* Recording Indicator */
+        .rec-box {
+            background: rgba(255, 0, 60, 0.1);
+            border: 1px solid var(--neon-red);
+            color: var(--neon-red);
+            padding: 12px;
+            border-radius: 6px;
+            text-align: center;
+            font-weight: 700;
+            letter-spacing: 2px;
+            display: none;
+            /* Hidden by default */
+            animation: pulse 1s infinite alternate;
+        }
+
+        @keyframes pulse {
+            from {
+                opacity: 0.6;
+                box-shadow: 0 0 5px var(--neon-red);
+            }
+
+            to {
+                opacity: 1;
+                box-shadow: 0 0 15px var(--neon-red);
+            }
+        }
+
+        /* Mode Buttons */
+        .mode-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-top: auto;
+        }
+
+        button {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--glass-border);
+            color: #fff;
+            padding: 15px;
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 18px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        button::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: #fff;
+            opacity: 0.5;
+            transition: 0.3s;
+        }
+
+        button:hover {
+            background: rgba(255, 255, 255, 0.1);
+            padding-left: 20px;
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.1);
+        }
+
+        .btn-det:hover {
+            border-color: var(--neon-blue);
+        }
+
+        .btn-det:hover::before {
+            background: var(--neon-blue);
+        }
+
+        .btn-cnt:hover {
+            border-color: var(--neon-green);
+        }
+
+        .btn-cnt:hover::before {
+            background: var(--neon-green);
+        }
+
+        .btn-gym:hover {
+            border-color: var(--neon-purple);
+        }
+
+        .btn-gym:hover::before {
+            background: var(--neon-purple);
+        }
+
+        .active-mode {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: #fff;
+        }
     </style>
 </head>
-<body>
-    <header>
-        <h1>IoT Vision Dashboard</h1>
-        <p>Real-time AI Inference & Analytics</p>
-    </header>
 
-    <div class="container">
-        <div class="video-box">
-            <img src="/video_feed" width="100%" height="100%" />
+<body>
+
+    <!-- 3D Background Container -->
+    <div id="vanta-bg"></div>
+
+    <div class="main-interface">
+
+        <!-- Video Feed -->
+        <div class="video-container">
+            <img src="/video_feed" class="feed" alt="Signal Lost">
         </div>
 
-        <div class="controls">
-            <h3>Mode Selection</h3>
-            <button class="btn-det" onclick="setMode('DETECTION')">Detection Mode</button>
-            <button class="btn-cnt" onclick="setMode('COUNTING')">People Counter</button>
-            <button class="btn-gym" onclick="setMode('GYM')">AI Gym Tracker</button>
+        <!-- Controls -->
+        <div class="control-panel">
+            <div>
+                <h1>VISION ENGINE</h1>
+                <h2>v1.0 // SYSTEM READY</h2>
 
-            <div class="status">
-                <p>Current Mode: <span id="currentMode">...</span></p>
-                <p>FPS: <span id="fps">...</span></p>
-                <p class="rec-indicator" id="recStatus">🔴 RECORDING EVENT</p>
+                <div class="stats-grid">
+                    <div class="stat-box">
+                        <div class="stat-label">FPS</div>
+                        <div class="stat-value" id="fps-value">--</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">MODE</div>
+                        <div class="stat-value" id="mode-value">--</div>
+                    </div>
+                </div>
+
+                <!-- Dynamic Info Panels -->
+                <div id="gym-stats" class="stats-grid" style="display: none;">
+                    <div class="stat-box">
+                        <div class="stat-label">REPS</div>
+                        <div class="stat-value" id="gym-reps" style="color: var(--neon-purple);">0</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">STATE</div>
+                        <div class="stat-value" id="gym-state" style="font-size: 16px;">Idle</div>
+                    </div>
+                </div>
+
+                <div id="cnt-stats" class="stats-grid" style="display: none;">
+                    <div class="stat-box">
+                        <div class="stat-label">IN (DOWN)</div>
+                        <div class="stat-value" id="cnt-in" style="color: var(--neon-green);">0</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">OUT (UP)</div>
+                        <div class="stat-value" id="cnt-out" style="color: var(--neon-red);">0</div>
+                    </div>
+                </div>
+
+                <div id="gym-feedback"
+                    style="text-align:center; color: var(--neon-purple); font-weight:bold; min-height: 20px;"></div>
+
+                <div id="rec-status" class="rec-box">
+                    ● RECORDING
+                </div>
             </div>
-            
-            <div style="margin-top:20px; font-size: 0.8em; color: #888;">
-                Device: Edge AI Server<br>
-                Status: Online
+
+            <div class="mode-controls">
+                <button class="btn-det" onclick="setMode('DETECTION')">Detection</button>
+                <button class="btn-cnt" onclick="setMode('COUNTING')">Analytics</button>
+                <button class="btn-gym" onclick="setMode('GYM')">AI Gym</button>
             </div>
         </div>
     </div>
 
     <script>
+        // Init Vanta.js 3D Background (Net effect)
+        VANTA.NET({
+            el: "#vanta-bg",
+            mouseControls: true,
+            touchControls: true,
+            gyroControls: false,
+            minHeight: 200.00,
+            minWidth: 200.00,
+            scale: 1.00,
+            scaleMobile: 1.00,
+            color: 0x00f3ff,       // Neon Blue nodes
+            backgroundColor: 0x050505, // Dark background
+            points: 12.00,
+            maxDistance: 22.00,
+            spacing: 18.00
+        })
+
+        // API Interaction
         function setMode(mode) {
             fetch(`/api/mode/${mode}`, { method: 'POST' })
                 .then(response => response.json())
-                .then(data => {
-                    document.getElementById('currentMode').innerText = data.mode;
-                });
+                .then(updateUI);
         }
-        
+
+        function updateUI(data) {
+            // No strict need to update manual things here as loop handles it
+        }
+
         setInterval(() => {
             fetch('/api/stats')
                 .then(response => response.json())
                 .then(data => {
-                    document.getElementById('currentMode').innerText = data.mode;
-                    document.getElementById('fps').innerText = data.fps;
-                    document.getElementById('recStatus').style.display = data.recording ? 'block' : 'none';
+                    document.getElementById('mode-value').innerText = data.mode;
+                    document.getElementById('fps-value').innerText = data.fps;
+
+                    const rec = document.getElementById('rec-status');
+                    rec.style.display = data.recording ? 'block' : 'none';
+
+                    // Toggle Panels Area
+                    document.getElementById('gym-stats').style.display = (data.mode === 'GYM') ? 'grid' : 'none';
+                    document.getElementById('cnt-stats').style.display = (data.mode === 'COUNTING') ? 'grid' : 'none';
+
+                    if (data.mode === 'GYM') {
+                        document.getElementById('gym-reps').innerText = data.reps;
+                        document.getElementById('gym-state').innerText = data.gym_state;
+                        document.getElementById('gym-feedback').innerText = data.feedback;
+                    }
+
+                    if (data.mode === 'COUNTING') {
+                        document.getElementById('cnt-in').innerText = data.count_in;
+                        document.getElementById('cnt-out').innerText = data.count_out;
+                    }
                 });
-        }, 1000);
+        }, 500); // Update faster for smooth counting
     </script>
 </body>
+
 </html>
