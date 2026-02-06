@@ -5,6 +5,7 @@ import numpy as np
 from tracker import CentroidTracker
 from pose_detector import PoseDetector
 from gym_logic import GymLogic
+from recorder import EventRecorder
 import onnxruntime as ort
 
 # COCO Class Names (80 classes)
@@ -95,6 +96,9 @@ class VisionApp:
         
         self.pose_detector = PoseDetector(pose_model)
         self.gym_logic = GymLogic()
+        
+        # New: Recorder
+        self.recorder = EventRecorder(buffer_seconds=2, post_event_seconds=5)
 
         # State
         self.mode = "DETECTION" # Start with simple detection
@@ -114,8 +118,17 @@ class VisionApp:
             if not ret:
                 break
             
+            # Process Buffer (Raw frame before drawing)
+            # Actually we likely want the recording to contain the DRAWING (Visuals).
+            # If so, we should record 'frame' AT THE END of the loop.
+            # But 'recorder.write_frame' needs to happen every loop.
+            # Let's verify: usually we want "Clean" video or "Overlay" video?
+            # For "Evidence" (Security), usually Raw is better, but for "Demo", Overlay is better.
+            # Let's record the Overlay (processed frame) for maximum "Appeal".
+            
             start_time = time.time()
             
+            # Logic & Drawing (Modifies 'frame' in-place)
             if self.mode == "DETECTION":
                 self.run_detection(frame)
             elif self.mode == "COUNTING":
@@ -127,9 +140,17 @@ class VisionApp:
             
             # UI Overlay
             cv2.rectangle(frame, (0, 0), (frame.shape[1], 40), (0, 0, 0), -1)
-            cv2.putText(frame, f"MODE: {self.mode} | FPS: {fps:.1f} | Press TAB to Switch", 
+            cv2.putText(frame, f"MODE: {self.mode} | FPS: {fps:.1f} | TAB: Switch", 
                        (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+            # Recording Status Indicator
+            if self.recorder.is_recording():
+                cv2.circle(frame, (frame.shape[1] - 30, 25), 10, (0, 0, 255), -1) # Red Dot
+                cv2.putText(frame, "REC", (frame.shape[1] - 80, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
             
+            # Feed processed frame to Recorder
+            self.recorder.write_frame(frame)
+
             cv2.imshow("Unified Vision App", frame)
 
             key = cv2.waitKey(1) & 0xFF
@@ -145,6 +166,7 @@ class VisionApp:
                 break
         
         self.cap.release()
+        self.recorder.stop_recording() # Ensure mostly safe exit
         cv2.destroyAllWindows()
 
     def toggle_mode(self):
@@ -191,10 +213,15 @@ class VisionApp:
             if object_id in self.trackable_objects:
                 prev_y = self.trackable_objects[object_id]
                 curr_y = c_y
+                
+                # Check crossing
                 if prev_y < line_y and curr_y >= line_y:
                     self.total_count_down += 1
+                    self.recorder.trigger() # <--- TRIGGER RECORDER
                 elif prev_y > line_y and curr_y <= line_y:
                     self.total_count_up += 1
+                    self.recorder.trigger() # <--- TRIGGER RECORDER
+            
             self.trackable_objects[object_id] = c_y
 
         # Stats
@@ -211,6 +238,12 @@ class VisionApp:
             angle, state, reps, feedback = self.gym_logic.update(kpts)
             self.gym_logic.draw(frame, kpts, angle)
             
+            if feedback == "Good Rep!":
+                 # To avoid spamming trigger every frame of the "Good Rep" message, 
+                 # we might need logic in gym_logic to return IsNewRep flag.
+                 # For now, simplistic trigger is fine, recorder handles extensions.
+                 self.recorder.trigger() 
+
             cv2.putText(frame, f"REPS: {reps}", (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 255), 3)
             cv2.putText(frame, f"State: {state}", (10, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
             cv2.putText(frame, f"{feedback}", (10, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
